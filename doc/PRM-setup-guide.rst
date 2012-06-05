@@ -3,6 +3,43 @@ How to setup Percona replication manager (PRM)
 ==============================================
 
 
+--------
+Overview
+--------
+
+The solution we building is basically made of 4 components: Corosync, Pacemaker, the mysql resource agent and MySQL itself.  
+
+Corosync
+========
+
+Corosync handles the communication between the nodes.  It implements a cluster protocol called Totem and communicates over UDP (default port 5405).  By default it uses multicast but version 1.4.2 also supports unicast (udpu).  Pacemaker uses Corosync as a messaging service.  Corosync is not the only communication layer that can be used with Pacemaker heartbeat is another one although its usage is going down.
+
+Pacemaker
+=========
+
+Pacemaker is the heart of the solution, it the part managing where the logic is.  Pacemaker maitains a *cluster information base* **cib** that is a share xml databases between all the actives nodes.  The updates to the cib are send synchronously too all the nodes through Corosync.  Pacemaker has an amazingly rich set of configuration settings and features that allows very complex designs.  Without going into too much details, here are some of the features offered:
+- location rules: locating resources on nodes based on some criteria
+- colocating rules: colocating resources based on some criteria
+- clone set: a bunch of similar resource
+- master-slave clone set: a clone set with different level of members
+- a resource group: a group of resources forced to be together
+- ordering rules: in which order should some operation be performed
+- Attributes: kind of cluster wide variables, can be permanent or transient
+- Monitoring: resource can be monitored
+- Notification: resource can be notified of a cluster wide change
+
+and many more.  The Pacemaker logic works with scores, the highest score wins.  
+
+mysql resource agent
+====================
+
+In order to manage mysql and mysql replication, Pacemaker uses a resource agent which is a bash script.  The mysql resource agent bash script supports a set of calls like start, stop, monitor, promote, etc.  That allows Pacemaker to perform the required actions.
+
+MySQL
+=====
+ 
+The final service, the database.
+
 
 -----------------------
 Installing the packages
@@ -91,18 +128,46 @@ This shows the 2 nodes that are member of the cluster.  If you have more than 2 
 
 The above corosync configuration file is minimalist, it can be expanded in many ways.  For more information, ``man corosync.conf`` is your friend.
 
+---------------------
+Configuring Pacemaker
+---------------------
+
+The OS level configuration for Pacemaker is very simple, create the file ``/etc/corosync/service.d/pacemaker`` with the following content::
+
+   service {
+         name: pacemaker
+         ver: 1
+   }
+
+
+then, you can start pacemaker with ``service pacemaker start``.  Once started, you should be able to verify the cluster status with the crm command::
+
+   [root@host-02 corosync]# crm status
+   ============
+   Last updated: Thu May 24 17:06:57 2012
+   Last change: Thu May 24 17:05:32 2012 via crmd on host-01
+   Stack: openais
+   Current DC: host-01 - partition with quorum
+   Version: 1.1.6-3.el6-a02c0f19a00c1eb2527ad38f146ebc0834814558
+   2 Nodes configured, 2 expected votes
+   0 Resources configured.
+   ============
+
+   Online: [ host-01 host-02 ]
+
+Here, ``host-01`` and ``host-02`` correspond to the ``uname -n`` values.
 
 -----------------
 Configuring MySQL
 -----------------
 
-Install MySQL
-=============
+Installation of MySQL
+=====================
 
-Install packages like you would normally do depending on the distribution you are using.
+Install packages like you would normally do depending on the distribution you are using.  The minimal requirements for my.cnf are a unique ``server_id`` for replication, ``log-bin`` to activate the binary log and **not** ``log-slave-updates`` since this screw up the logic.  Start Mysql manually with ``service mysql start`` or the equivalent.
 
-Grants
-======
+Required Grants
+===============
 
 The following grants are needed::
 
@@ -113,7 +178,7 @@ The following grants are needed::
 Setup replication
 =================
 
-You setup the replication like you normally do, make sure replication works fine between all hosts.  With 2 hosts, a good way of checking is to setup master-master replication.  Keep in mind though that PRM will only use master-slave.  Once done, stop MySQL and make sure it doesn't start automatically after boot.
+You setup the replication like you normally do, make sure replication works fine between all hosts.  With 2 hosts, a good way of checking is to setup master-master replication.  Keep in mind though that PRM will only use master-slave.  Once done, stop MySQL and make sure it doesn't start automatically after boot.  In the future, Pacemaker will be managing MySQL
 
 -----------------------
 Pacemaker configuration
@@ -143,25 +208,151 @@ Configuring Pacemaker
 Cluster attributes
 ------------------
 
-For the sake of simplicity 
+For the sake of simplicity we start by a 2 nodes cluster.  The problem with a 2 nodes cluster is the loss of quorum as soon as one of the hosts is down.  In order to have a functional 2 nodes we must set the *no-quorum-policy* to ignore like this::
 
-Node attributes
----------------
+   crm_attribute --attr-name no-quorum-policy --attr-value ignore
+
+This can be revisited for larger clusters.  Also, since for this example we are not configuring any stonith devices, we have to disable stonith with::
+
+   crm_attribute --attr-name stonith-enabled --attr-value false
+
+IP configuration for replication
+--------------------------------
+
+The PRM solution needs to know which IP it should use to connect to a master when configuring replication, basically, for the *master_host* parameter of the ``change master to`` command.  There's 2 ways of configuring the IPs.  
+
+The default way is to make sure the host names resolves correctly on all the members of the cluster.  Collect the hostnames with ``uname -n`` and verify those names resolve to the IPs you want to from all hosts using replication.  If possible, avoid DNS and use /etc/hosts since DNS adds a big single point of failure.
+
+The other way uses a node attribute.  For example, if the MySQL resource primitive name (next section) is ``p_mysql`` then you can add ``p_mysql_mysql_master_IP`` (``_mysql_master_IP`` concatenated to the resource name) to each node with the IP you want to use. Here's an example::
+
+   node host-01 \
+         attributes p_mysql_mysql_master_IP="172.30.222.193"
+   node host-02 \
+         attributes p_mysql_mysql_master_IP="172.30.222.212"
+   
+Which means the IP 172.30.222.193 will be use for the ``change master to`` command when host-01 is the master and same for 172.30.222.212, which will be used when host-02 is the master.  These IPs correspond to the private network (eth1) of those hosts.  The best way to modify the Pacemaker configuration is with the command ``crm configure edit`` which loads the configuration in vi.  Once done editing, save the file ":wq" and the new configuration will be loaded by Pacemaker.
 
 The MySQL resource primitive
 ----------------------------
 
+We are now ready to start giving work to Pacemaker the first thing we will do is configure the mysql primitive which defines how Pacemaker will call the mysql resource agent.  The resource has many parameter, let's first review them, the defautls presented are the ones for Linux.
+
+====================  ========================================================================================================
+Parameter                Description
+=======================  ========================================================================================================
+binary                   Location of the MySQL server binary. Typically, this will point to the mysqld or the mysqld_safe file.  
+                         The recommended value is the the path of the the mysqld binary, be aware it may not be the defautl.
+                         *default: /usr/bin/safe_mysqld*
+
+client_binary            Location of the MySQL client binary.  *default: mysql*
+
+config                   Location of the mysql configuation file. *default: /etc/my.cnf*
+
+datadir                  Directory containing the MySQL database *default: /var/lib/mysql*
+
+user                     Unix user under which will run the MySQL daemon *default: mysql*
+
+group                    Unix group under which will run the MySQL daemon *default: mysql*
+
+log                      The logfile to be used for mysqld. *default: /var/log/mysqld.log*
+
+pid                      The location of the pid file for mysqld process. *default: /var/run/mysql/mysqld.pid*
+
+socket                   The MySQL Unix socket file. *default: /var/lib/mysql/mysql.sock*
+
+test_table               The table used to test mysql with a ``select count(*)``. *default: mysql.user*
+
+test_user                The MySQL user performing the test on the test table.  Must have ``grant select`` on the test table.
+                         *default: root*
+
+test_passwd              Password of the test user. *default: no set*
+
+enable_creation          Runs ``mysql_install_db`` if the datadir is not configured. *default: 0 (boolean 0 or 1)*  
+
+additional_parameters    Additional MySQL parameters passed (example ``--skip-grant-tables``). *default: no set*
+
+replication_user         The MySQL user to use in the ``change master to master_user`` command.  The user must have 
+                         REPLICATION SLAVE and REPLICATION CLIENT from the other hosts and SUPER, REPLICATION SLAVE,
+                         REPLICATION CLIENT, and PROCESS from localhost.  *default: no set*
+
+replication_passwd       The password of the replication_user. *default: no set*
+
+replication_port         TCP Port to use for MySQL replication. *default: 3306*
+
+max_slave_lag            The maximum number of seconds a replication slave is allowed to lag behind its master. 
+                         Do not set this to zero. What the cluster manager does in case a slave exceeds this maximum lag 
+                         is determined by the evict_outdated_slaves parameter.  If evict_outdated_slaves is true, slave is 
+                         stopped and if false, only a transcient attribute (see reader_attribute) is set to 0.
+
+evict_outdated_slaves    This parameter instructs the resource agent how to react if the slave is lagging behind by more
+                         than max_slave_lag.  When set to true, outdated slaves are stopped.  *default: false*
+
+reader_attribute         This parameter sets the name of the transient attribute that can be used to adjust the behavior
+                         of the cluster given the state of the slave.  Each slaves updates this attributor at each
+                         monitor call and sets it to 1 is sane and 0 if not sane.  Sane is defined as lagging by less than
+                         max_slave_lag and slave threads are running.  *default: readable*
+
+=======================  ========================================================================================================                      
+
+So here's a typical primitive declaration::
+
+   primitive p_mysql ocf:percona:mysql \
+         params config="/etc/mysql/my.cnf" pid="/var/lib/mysql/mysqld.pid" socket="/var/run/mysqld/mysqld.sock" \
+            replication_user="repl_user" replication_passwd="ola5P1ZMU" max_slave_lag="60" \
+            evict_outdated_slaves="false" binary="/usr/sbin/mysqld" test_user="test_user" test_passwd="2JcXCxKF" \
+         op monitor interval="5s" role="Master" OCF_CHECK_LEVEL="1" \
+         op monitor interval="2s" role="Slave" OCF_CHECK_LEVEL="1" \
+         op start interval="0" timeout="60s" \
+         op stop interval="0" timeout="60s" 
+
+An easy way to load the above fragment is to use the ``crm configure edit`` command.  You will notice that we also define two monitor operations, one for the role Master and one for role slave with different intervals.  It is important to have different intervals, for Pacemaker internal reasons. Also, I defined the timeout for start and stop to 60s, make sure you have configured innodb_log_file_size in a way that mysql can stop in less than 60s with the maximum allowed number of dirty pages and that it can start in less than 60s while having to perform Innodb recovery.  Since the snippet refers to role Master and Slave, you need to also include the master slave clone set (below).
+
 The Master slave clone set
 --------------------------
+
+Next we need to tell Pacemaker to start a set of similar resource (the p_mysql type primitive) and consider the primitives in the set as having 2 states, Master and slave.  This type of declaration uses the ``ms`` type (for master-slave).  The configuration snippet for the ``ms`` is::
+
+   ms ms_MySQL p_mysql \
+        meta master-max="1" master-node-max="1" clone-max="2" clone-node-max="1" notify="true" globally-unique="false" target-role="Master" is-managed="true"
+
+Here, the importants elements are clone-max and notify.  ``clone-max`` is the number of databases node involded in the ``ms`` set.  Since we are consider a two nodes cluster, it is set to 2.  If we ever add a node, we will need to increase ``clone-max`` to 3.  The solution works with notification, so it is mandatory to enable notifications with ``notify`` set to true.
 
 The VIP primitives
 ------------------
 
+Let's assume we want to have a writer virtual IP (VIP), 172.30.222.100 and two reader virtual IPs, 172.30.222.101 and 172.30.222.102.  The first thing we need to do is to add the primitives to the cluster configuration.  Those primitives will look like::
+
+   primitive reader_vip_1 ocf:heartbeat:IPaddr2 \
+         params ip="172.30.222.101" nic="eth1" \
+         op monitor interval="10s"
+   primitive reader_vip_2 ocf:heartbeat:IPaddr2 \
+         params ip="172.30.222.102" nic="eth1" \
+         op monitor interval="10s"
+   primitive writer_vip ocf:heartbeat:IPaddr2 \
+         params ip="172.30.222.100" nic="eth1" \
+         op monitor interval="10s"
+
+After adding these primitives to the cluster configuration with ``crm configure edit``, the VIPs will be distributed in a round-robin fashion, not exactly ideal.  This is why we need to add rules to control on which hosts they'll be on.
+
 Reader VIP location rules
 -------------------------
 
+One of the new element introduced with this solution is the addition of a transient attribute to control if a host is suitable to host a reader VIP.  The replication master are always suitable but the slave suitability is determine by the monitor operation which set the transient attribute to 1 is ok and to 0 is not.  In the MySQL primitive above, we have not set the *reader_attribute* parameter so we are using the default value "readable" for the transient attribute.  The use of the transient attribute is through a location rule which will but a score on -infinity for the VIPs to be located on unsuitable hosts.  The location rules for the reader VIPs are the following::
+
+   location loc-no-reader-vip-1 reader_vip_1 \
+         rule $id="rule-no-reader-vip-1" -inf: readable eq 0
+   location loc-No-reader-vip-2 reader_vip_2 \
+         rule $id="rule-no-reader-vip-2" -inf: readable eq 0
+
+Again, use ``crm configure edit`` to add the these rules.
+
 Writer VIP rules
 ----------------
+
+The writer VIP is simpler, it is bound to the master.  This is achieved with a colocation rule and an order like below::  
+
+   colocation writer_vip_on_master inf: writer_vip ms_MySQL:Master 
+   order ms_MySQL_promote_before_vip inf: ms_MySQL:promote writer_vip:start 
 
 Useful Pacemaker commands
 =========================
@@ -172,6 +363,11 @@ To check the cluster status
 
 To view and/or edit the configuration
 -------------------------------------
+
+crm configure edit
+
+crm configure show
+
 
 
 To change a node status
@@ -194,6 +390,21 @@ How to repair replication
 How to exclude a node from the master role
 ------------------------------------------
 
-How to use PRM in the cloud
----------------------------
+How to verify why a reader VIP is not on a slaves
+-------------------------------------------------
+
+
+
+
+Advanced topics
+===============
+
+VIPless cluster (cloud)
+-----------------------
+
+Non-multicast cluster (cloud)
+-----------------------------
+
+Stonith devices
+---------------
 
