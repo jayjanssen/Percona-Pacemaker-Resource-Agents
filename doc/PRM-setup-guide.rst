@@ -237,7 +237,7 @@ The MySQL resource primitive
 
 We are now ready to start giving work to Pacemaker the first thing we will do is configure the mysql primitive which defines how Pacemaker will call the mysql resource agent.  The resource has many parameter, let's first review them, the defautls presented are the ones for Linux.
 
-====================  ========================================================================================================
+=======================  ========================================================================================================
 Parameter                Description
 =======================  ========================================================================================================
 binary                   Location of the MySQL server binary. Typically, this will point to the mysqld or the mysqld_safe file.  
@@ -407,4 +407,8 @@ Non-multicast cluster (cloud)
 
 Stonith devices
 ---------------
+
+Preventing a collapse of the slaves
+-----------------------------------
+
 
