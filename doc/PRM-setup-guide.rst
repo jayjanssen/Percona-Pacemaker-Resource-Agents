@@ -3,6 +3,7 @@ How to setup Percona replication manager (PRM)
 ==============================================
 
 Author: Yves Trudeau, Percona
+June 2012
 
 --------
 Overview
