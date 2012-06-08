@@ -2,6 +2,7 @@
 How to setup Percona replication manager (PRM) 
 ==============================================
 
+Author: Yves Trudeau, Percona
 
 --------
 Overview
@@ -164,7 +165,23 @@ Configuring MySQL
 Installation of MySQL
 =====================
 
-Install packages like you would normally do depending on the distribution you are using.  The minimal requirements for my.cnf are a unique ``server_id`` for replication, ``log-bin`` to activate the binary log and **not** ``log-slave-updates`` since this screw up the logic.  Start Mysql manually with ``service mysql start`` or the equivalent.
+Install packages like you would normally do depending on the distribution you are using.  The minimal requirements for my.cnf are a unique ``server_id`` for replication, ``log-bin`` to activate the binary log and **not** ``log-slave-updates`` since this screw up the logic.  Also, make sure pid-file and socket correspond to what will be defined below for the configuration of the mysql primitive in Pacemaker.  In our example, on Centos 6 servers::
+
+   [root@host-01 ~]# cat /etc/my.cnf 
+   [client]
+   socket=/var/run/mysqld/mysqld.sock
+   [mysqld]
+   datadir=/var/lib/mysql
+   socket=/var/run/mysqld/mysqld.sock
+   user=mysql
+   # Disabling symbolic-links is recommended to prevent assorted security risks
+   symbolic-links=0
+   log-bin
+   server-id=1
+   pid-file=/var/lib/mysql/mysqld.pid
+
+
+Start Mysql manually with ``service mysql start`` or the equivalent.
 
 Required Grants
 ===============
@@ -297,9 +314,9 @@ reader_attribute         This parameter sets the name of the transient attribute
 So here's a typical primitive declaration::
 
    primitive p_mysql ocf:percona:mysql \
-         params config="/etc/mysql/my.cnf" pid="/var/lib/mysql/mysqld.pid" socket="/var/run/mysqld/mysqld.sock" \
-            replication_user="repl_user" replication_passwd="ola5P1ZMU" max_slave_lag="60" \
-            evict_outdated_slaves="false" binary="/usr/sbin/mysqld" test_user="test_user" test_passwd="2JcXCxKF" \
+         params config="/etc/my.cnf" pid="/var/lib/mysql/mysqld.pid" socket="/var/run/mysqld/mysqld.sock" replication_user="repl_user" \
+                replication_passwd="ola5P1ZMU" max_slave_lag="60" evict_outdated_slaves="false" binary="/usr/libexec/mysqld" \
+                test_user="test_user" test_passwd="2JcXCxKF" \
          op monitor interval="5s" role="Master" OCF_CHECK_LEVEL="1" \
          op monitor interval="2s" role="Slave" OCF_CHECK_LEVEL="1" \
          op start interval="0" timeout="60s" \
@@ -352,7 +369,54 @@ Writer VIP rules
 The writer VIP is simpler, it is bound to the master.  This is achieved with a colocation rule and an order like below::  
 
    colocation writer_vip_on_master inf: writer_vip ms_MySQL:Master 
-   order ms_MySQL_promote_before_vip inf: ms_MySQL:promote writer_vip:start 
+   order ms_MySQL_promote_before_vip inf: ms_MySQL:promote writer_vip:start
+
+All together
+------------
+
+Here's all the snippets grouped together::
+
+   [root@host-01 ~]# crm configure show
+   node host-01 \
+         attributes p_mysql_mysql_master_IP="172.30.222.193"
+   node host-02 \
+         attributes p_mysql_mysql_master_IP="172.30.222.212"
+   primitive p_mysql ocf:percona:mysql \
+         params config="/etc/my.cnf" pid="/var/lib/mysql/mysqld.pid" socket="/var/run/mysqld/mysqld.sock" replication_user="repl_user" replication_passwd="ola5P1ZMU" max_slave_lag="60" evict_outdated_slaves="false" binary="/usr/libexec/mysqld" test_user="test_user" test_passwd="2JcXCxKF" \                                                                                           
+         op monitor interval="5s" role="Master" OCF_CHECK_LEVEL="1" \
+         op monitor interval="2s" role="Slave" OCF_CHECK_LEVEL="1" \
+         op start interval="0" timeout="60s" \
+         op stop interval="0" timeout="60s"
+   primitive reader_vip_1 ocf:heartbeat:IPaddr2 \
+         params ip="172.30.222.101" nic="eth1" \
+         op monitor interval="10s"
+   primitive reader_vip_2 ocf:heartbeat:IPaddr2 \
+         params ip="172.30.222.102" nic="eth1" \
+         op monitor interval="10s"
+   primitive writer_vip ocf:heartbeat:IPaddr2 \
+         params ip="172.30.222.100" nic="eth1" \
+         op monitor interval="10s"
+   ms ms_MySQL p_mysql \
+         meta master-max="1" master-node-max="1" clone-max="2" clone-node-max="1" notify="true" globally-unique="false" target-role="Master" is-managed="true"
+   location loc-No-reader-vip-2 reader_vip_2 \
+         rule $id="rule-no-reader-vip-2" -inf: readable eq 0
+   location loc-no-reader-vip-1 reader_vip_1 \
+         rule $id="rule-no-reader-vip-1" -inf: readable eq 0
+   colocation writer_vip_on_master inf: writer_vip ms_MySQL:Master
+   order ms_MySQL_promote_before_vip inf: ms_MySQL:promote writer_vip:start
+   property $id="cib-bootstrap-options" \
+         dc-version="1.1.6-3.el6-a02c0f19a00c1eb2527ad38f146ebc0834814558" \
+         cluster-infrastructure="openais" \
+         expected-quorum-votes="2" \
+         no-quorum-policy="ignore" \
+         stonith-enabled="false" \
+         last-lrm-refresh="1338928815"
+   property $id="mysql_replication" \
+         p_mysql_REPL_INFO="172.30.222.193|mysqld-bin.000002|106"
+
+
+You'll notice toward the end, the ``p_mysql_REPL_INFO`` attribute (the value may differ) that correspond to the master status when it has been promoted to master.  
+ 
 
 Useful Pacemaker commands
 =========================
@@ -360,18 +424,36 @@ Useful Pacemaker commands
 To check the cluster status
 ---------------------------
 
+Two tools can be used to query the cluster status, ``crm_mon`` and ``crm status``.  They produce the same output but ``crm_mon`` is more like top, it stays on screen and refreshes at every changes.  ``crm status`` is a one time status dump.  The output is the following::
+
+   [root@host-01 ~]# crm status
+   ============
+   Last updated: Tue Jun  5 17:09:01 2012
+   Last change: Tue Jun  5 16:43:08 2012 via cibadmin on host-01
+   Stack: openais
+   Current DC: host-01 - partition with quorum
+   Version: 1.1.6-3.el6-a02c0f19a00c1eb2527ad38f146ebc0834814558
+   2 Nodes configured, 2 expected votes
+   5 Resources configured.
+   ============
+
+   Online: [ host-01 host-02 ]
+
+   Master/Slave Set: ms_MySQL [p_mysql]
+      Masters: [ host-01 ]
+      Slaves: [ host-02 ]
+   reader_vip_1   (ocf::heartbeat:IPaddr2):       Started host-01
+   reader_vip_2   (ocf::heartbeat:IPaddr2):       Started host-02
+   writer_vip     (ocf::heartbeat:IPaddr2):       Started host-01
 
 To view and/or edit the configuration
 -------------------------------------
 
-crm configure edit
-
-crm configure show
-
-
+To view the current configuration use ``crm configure show`` and to edit, use ``crm configure edit``.  The later command starts the vi editor on the current configuration.  If you want to use another editor, set the EDITOR session variable. 
 
 To change a node status
 -----------------------
+
 
 
 ----------------
@@ -392,6 +474,12 @@ How to exclude a node from the master role
 
 How to verify why a reader VIP is not on a slaves
 -------------------------------------------------
+
+How to clean up error in pacemaker
+----------------------------------
+
+Enabling trace in the resource agent
+------------------------------------
 
 
 
