@@ -73,13 +73,14 @@ Redhat/Centos 5
 On older releases of RHEL/Centos, you have to install some external repos first:
 
 ::
+
    [root@host-01 ~]# wget http://download.fedoraproject.org/pub/epel/5/x86_64/epel-release-5-4.noarch.rpm
    [root@host-01 ~]# rpm -Uvh epel-release-5-4.noarch.rpm
    [root@host-01 ~]# wget -O /etc/yum.repos.d/pacemaker.repo http://clusterlabs.org/rpm/epel-5/clusterlabs.repo
    [root@host-01 ~]# yum install pacemaker corosync
 
 
-On Centos 6.2, this will install Pacemaker 1.1.6 and corosync 1.4.1.
+On RHEL 5.8, this will install Pacemaker 1.0.12 and corosync 1.2.7.
 
 --------------------
 Configuring corosync
