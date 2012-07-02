@@ -48,8 +48,8 @@ The final service, the database.
 Installing the packages
 -----------------------
 
-Redhat/Centos
-=============
+Redhat/Centos 6
+===============
 
 ::
 
@@ -66,6 +66,21 @@ Debian/Ubuntu
    [root@host-01 ~]# apt-get install pacemaker corosync
 
 On Debian Wheezy, this will install Pacemaker 1.1.6 and corosync 1.4.2
+
+Redhat/Centos 5
+===============
+
+On older releases of RHEL/Centos, you have to install some external repos first:
+
+::
+
+   [root@host-01 ~]# wget http://download.fedoraproject.org/pub/epel/5/x86_64/epel-release-5-4.noarch.rpm
+   [root@host-01 ~]# rpm -Uvh epel-release-5-4.noarch.rpm
+   [root@host-01 ~]# wget -O /etc/yum.repos.d/pacemaker.repo http://clusterlabs.org/rpm/epel-5/clusterlabs.repo
+   [root@host-01 ~]# yum install pacemaker corosync
+
+
+On RHEL 5.8, this will install Pacemaker 1.0.12 and corosync 1.2.7.
 
 --------------------
 Configuring corosync
@@ -130,6 +145,16 @@ copy the file to both servers and start corosync with ``service corosync start``
 This shows the 2 nodes that are member of the cluster.  If you have more than 2 nodes, you should have more similar entries. If you don't have an output similar to the above, make sure iptables is not blocking udp port 5405 and inspect the content of ``/var/log/cluster/corosync.log`` for more information.
 
 The above corosync configuration file is minimalist, it can be expanded in many ways.  For more information, ``man corosync.conf`` is your friend.
+
+**NOTE:**  Older versions of corosync (RHEL/Centos 5) may not the members when running the *corosync-objctl* command.  You can see communication taking place with the following command (change the eth if not eth1)::
+
+   tcpdump -i eth1 -n port 5405
+
+And you should see output similar to the following::
+
+   09:57:46.969162 IP 172.30.222.212.hpoms-dps-lstn > 172.30.222.193.netsupport: UDP, length 107
+   09:57:46.989108 IP 172.30.222.193.hpoms-dps-lstn > 226.94.1.1.netsupport: UDP, length 119
+   09:57:47.159079 IP 172.30.222.193.hpoms-dps-lstn > 172.30.222.212.netsupport: UDP, length 107
 
 ---------------------
 Configuring Pacemaker
@@ -250,6 +275,16 @@ The other way uses a node attribute.  For example, if the MySQL resource primiti
          attributes p_mysql_mysql_master_IP="172.30.222.212"
    
 Which means the IP 172.30.222.193 will be use for the ``change master to`` command when host-01 is the master and same for 172.30.222.212, which will be used when host-02 is the master.  These IPs correspond to the private network (eth1) of those hosts.  The best way to modify the Pacemaker configuration is with the command ``crm configure edit`` which loads the configuration in vi.  Once done editing, save the file ":wq" and the new configuration will be loaded by Pacemaker.
+
+**NOTE:** Older versions of corosync (RHEL/Centos 5) may trigger an error like the following::
+
+   /var/run/crm/cib-invalid.vlD2Dq:14: element instance_attributes: Relax-NG validity error : Type ID doesn't allow value 'host-01-instance_attributes'
+   /var/run/crm/cib-invalid.vlD2Dq:14: element instance_attributes: Relax-NG validity error : Element instance_attributes failed to validate content
+   ...
+
+In this case, ``vi`` many not work for attribute editing so you can use a command like the following to set the IP (or other attributes)::
+
+   crm_attribute -l forever -G --node host-01 --name p_mysql_mysql_master_IP -v "172.30.222.193"
 
 The MySQL resource primitive
 ----------------------------
