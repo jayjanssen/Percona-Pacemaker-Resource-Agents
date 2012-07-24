@@ -514,6 +514,7 @@ Before you add the new node, however, you *should* tell pacemaker that you don't
 
 Once the new node has joined the cluster, you need to let the ``ms`` resource know that it can have another clone (slave).  You can achieve this by increasing the ``clone-max`` attribute by one.
 
+::
 
    ms ms_MySQL p_mysql \
         meta master-max="1" master-node-max="1" clone-max="3" clone-node-max="1" notify="true" globally-unique="false" target-role="Master" is-managed="true"
@@ -564,7 +565,7 @@ Pacemaker offers a very powerful configuration language to do exactly this, and 
 
 	location avoid_being_the_master ms_MySQL:Master -1000: my_node
 
-This should downgrade the possiblity of ``my_node`` being the master unless there simply are no other candidates.  To prevent ``my_node`` from becoming the master ever, simply take it further:
+This should downgrade the possiblity of ``my_node`` being the master unless there simply are no other candidates.  To prevent ``my_node`` from becoming the master ever, simply take it further::
 
 	location never_be_the_master ms_MySQL:Master -inf: my_node
 
@@ -605,6 +606,7 @@ Because failover is automated on the PRM cluster, performing rolling configurati
 #. Set the node to standby
 #. Make configuration changes
 #. Set the node to online
+#. Go to the next node
 
 Backups with PRM
 ----------------
@@ -614,15 +616,19 @@ There are a few basic ways to take a mysql backup, so depending on your method i
 If MySQL can continue running and the load of the backup is not a problem for continuing service on the slave, then you don't need to do anything.  Simply take your backup and allow normal service to continue.
 
 If you need to shift production traffic away from the node (i.e., a reader vip), then simply move the resource to some other node::
+
 	crm move slave_vip_running_on_backup_node not_the_backup_node
 
 Perform your backup here (note replication will remain running, but tools like mysqldump should not have a problem with this because it either locks the tables or wraps its backup in a transaction).  Then, to allow pacemaker to resume management of that vip::
+
 	crm unmove the_slave_vip_you_moved
 
 
 If you need to fully shutdown mysql to take your backup, it's best to simply standby the node::
+
 	crm node standby backup_node
 
 *further topics*:
+
 + Determining good backup candidate (i.e., not the master)
 + Prohibiting the selected backup node from being eligible for the master during the backup.
