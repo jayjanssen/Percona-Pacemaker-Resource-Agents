@@ -507,21 +507,21 @@ How to add a new node
 
 Adding a new node to the corosync and pacemaker cluster will follow the steps listed above that describe installing the packages, configuring corosync, and starting the corosync and pacemaker services.  It should **not** be necessary to re-add the crm configuration again to the pacemaker cluster.  Once the pacemaker crm config is added, the cluster is responsible for maintaining it on all members.  
 
-Before you add the new node, however, you *should* tell pacemaker that you don't want it to come online immediately by adding the ``standby="on"`` attribute.  You can do this by adding a line to the crm config similar to the following:
+Before you add the new node, however, you *should* tell pacemaker that you don't want it to come online immediately by adding the ``standby="on"`` attribute.  You can do this by adding a line to the crm config similar to the following::
 
-::
 	node host-09 \
 		attributes ...other attributes here... standby="on"
 
 Once the new node has joined the cluster, you need to let the ``ms`` resource know that it can have another clone (slave).  You can achieve this by increasing the ``clone-max`` attribute by one.
 
-::
+
    ms ms_MySQL p_mysql \
         meta master-max="1" master-node-max="1" clone-max="3" clone-node-max="1" notify="true" globally-unique="false" target-role="Master" is-managed="true"
 
 Note that the easiest way to make this configuration change is with ``crm configure edit``, which allows you to edit the existing configuration in the EDITOR of your choice.  You may also want to put the pacemaker cluster into maintenance-mode first:
 
 ::
+
 	crm(live)configure# property maintenance-mode=on
 	crm(live)configure# commit
 
