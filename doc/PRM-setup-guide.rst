@@ -519,9 +519,7 @@ Once the new node has joined the cluster, you need to let the ``ms`` resource kn
    ms ms_MySQL p_mysql \
         meta master-max="1" master-node-max="1" clone-max="3" clone-node-max="1" notify="true" globally-unique="false" target-role="Master" is-managed="true"
 
-Note that the easiest way to make this configuration change is with ``crm configure edit``, which allows you to edit the existing configuration in the EDITOR of your choice.  You may also want to put the pacemaker cluster into maintenance-mode first:
-
-::
+Note that the easiest way to make this configuration change is with ``crm configure edit``, which allows you to edit the existing configuration in the EDITOR of your choice.  You may also want to put the pacemaker cluster into maintenance-mode first::
 
 	crm(live)configure# property maintenance-mode=on
 	crm(live)configure# commit
@@ -627,6 +625,7 @@ Perform your backup here (note replication will remain running, but tools like m
 If you need to fully shutdown mysql to take your backup, it's best to simply standby the node::
 
 	crm node standby backup_node
+
 
 *further topics*:
 
