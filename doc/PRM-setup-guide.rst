@@ -561,13 +561,13 @@ How to exclude a node from the master role
 
 Pacemaker offers a very powerful configuration language to do exactly this, and many variations are possible.   The simplest way is to simply assign a negative priority to the ms Master role and the node you want to exclude::
 
-	location avoid_being_the_master ms_MySQL:Master -1000: my_node
+	location avoid_being_the_master ms_MySQL \
+ 		rule $role="Master" -1000: #uname eq my_node
 
 This should downgrade the possiblity of ``my_node`` being the master unless there simply are no other candidates.  To prevent ``my_node`` from becoming the master ever, simply take it further::
 
-	location never_be_the_master ms_MySQL:Master -inf: my_node
-
-**THE ABOVE DOESN'T WORK, PENDING A RESPONSE FROM THE PACEMAKER LIST**
+	location never_be_the_master ms_MySQL \
+		rule $role="Master" -inf: #uname eq my_node
 
 How to verify why a reader VIP is not on a slaves
 -------------------------------------------------
