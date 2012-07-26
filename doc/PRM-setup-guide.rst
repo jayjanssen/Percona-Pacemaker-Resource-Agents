@@ -631,3 +631,4 @@ If you need to fully shutdown mysql to take your backup, it's best to simply sta
 
 + Determining good backup candidate (i.e., not the master)
 + Prohibiting the selected backup node from being eligible for the master during the backup.
++ Using Xtrabackup's --safe-slave-backup with a PRM slave (see `Issue Here <https://github.com/jayjanssen/Percona-Pacemaker-Resource-Agents/issues/3>`_)
