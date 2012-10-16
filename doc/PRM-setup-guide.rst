@@ -17,6 +17,8 @@ Corosync
 
 Corosync handles the communication between the nodes.  It implements a cluster protocol called Totem and communicates over UDP (default port 5405).  By default it uses multicast but version 1.4.2 also supports unicast (udpu).  Pacemaker uses Corosync as a messaging service.  Corosync is not the only communication layer that can be used with Pacemaker heartbeat is another one although its usage is going down.
 
+Pacemaker can also use the heartbeat communication stack.  The setup using heartbeat is covered in the advanced topics.
+
 Pacemaker
 =========
 
@@ -471,8 +473,8 @@ How to add a new node
 How to repair replication
 -------------------------
 
-How to exclude a node from the master role
-------------------------------------------
+How to exclude a node from the master role (or less likely to be)
+-----------------------------------------------------------------
 
 How to verify why a reader VIP is not on a slaves
 -------------------------------------------------
@@ -483,7 +485,12 @@ How to clean up error in pacemaker
 Enabling trace in the resource agent
 ------------------------------------
 
+The golden way of debugging a PRM setup is with the agent trace file which is the output of "bash -x".  To enable the trace file simply do::
 
+   mkdir -p /tmp/mysql.ocf.ra.debug
+   touch /tmp/mysql.ocf.ra.debug/log
+
+Be aware, this is a very chatty file, about 20MB/h.  If left unattented, it can fill a disk.  When you are done, simply remove the log file.
 
 
 Advanced topics
@@ -501,4 +508,25 @@ Stonith devices
 Preventing a collapse of the slaves
 -----------------------------------
 
+Using heartbeat
+---------------
 
+Although Corosync is now the default communication stack with Pacemaker, Pacemaker works also well with Hearbeat. Here are the steps you need to configure Heartbeat instead of Corosync.  The first thing, you need a cluster key which can be created as simply as::
+
+   echo 'auth 1' > /etc/ha.d/authkeys
+   echo -n '1 sha1 ' >> /etc/ha.d/authkeys
+   date | md5sum >> /etc/ha.d/authkeys
+   chown root.root /etc/ha.d/authkeys
+   chmod 600 /etc/ha.d/authkeys
+
+Copy this file to all the nodes and preserve the ownership and rights.  Then, we must configure heartbeat to use pacemaker.  Here's a very simple Heartbeat configuration file (/etc/ha.d/ha.cf)::
+
+   autojoin any
+   bcast eth0
+   warntime 5
+   deadtime 15
+   initdead 60
+   keepalive 2
+   crm respawn
+
+Any node with the right authkeys file will be able to join (autojoin any).  Communication will be using ethernet broadcast (bcast) but multicast or even unicast could also be used.  Finally, Pacemaker is started with the "crm respawn" line.  Compared to the corosync setup described above, in order to start Pacemaker with Heartbeat, you just need to start Heartbeat.
