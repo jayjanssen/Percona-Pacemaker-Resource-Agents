@@ -6,6 +6,8 @@ Author: Yves Trudeau, Percona
 
 June 2012
 
+.. contents::
+
 --------
 Overview
 --------
@@ -50,8 +52,8 @@ The final service, the database.
 Installing the packages
 -----------------------
 
-Redhat/Centos
-=============
+Redhat/Centos 6
+===============
 
 ::
 
@@ -68,6 +70,21 @@ Debian/Ubuntu
    [root@host-01 ~]# apt-get install pacemaker corosync
 
 On Debian Wheezy, this will install Pacemaker 1.1.6 and corosync 1.4.2
+
+Redhat/Centos 5
+===============
+
+On older releases of RHEL/Centos, you have to install some external repos first:
+
+::
+
+   [root@host-01 ~]# wget http://download.fedoraproject.org/pub/epel/5/x86_64/epel-release-5-4.noarch.rpm
+   [root@host-01 ~]# rpm -Uvh epel-release-5-4.noarch.rpm
+   [root@host-01 ~]# wget -O /etc/yum.repos.d/pacemaker.repo http://clusterlabs.org/rpm/epel-5/clusterlabs.repo
+   [root@host-01 ~]# yum install pacemaker corosync
+
+
+On RHEL 5.8, this will install Pacemaker 1.0.12 and corosync 1.2.7.
 
 --------------------
 Configuring corosync
@@ -132,6 +149,16 @@ copy the file to both servers and start corosync with ``service corosync start``
 This shows the 2 nodes that are member of the cluster.  If you have more than 2 nodes, you should have more similar entries. If you don't have an output similar to the above, make sure iptables is not blocking udp port 5405 and inspect the content of ``/var/log/cluster/corosync.log`` for more information.
 
 The above corosync configuration file is minimalist, it can be expanded in many ways.  For more information, ``man corosync.conf`` is your friend.
+
+**NOTE:**  Older versions of corosync (RHEL/Centos 5) may not the members when running the *corosync-objctl* command.  You can see communication taking place with the following command (change the eth if not eth1)::
+
+   tcpdump -i eth1 -n port 5405
+
+And you should see output similar to the following::
+
+   09:57:46.969162 IP 172.30.222.212.hpoms-dps-lstn > 172.30.222.193.netsupport: UDP, length 107
+   09:57:46.989108 IP 172.30.222.193.hpoms-dps-lstn > 226.94.1.1.netsupport: UDP, length 119
+   09:57:47.159079 IP 172.30.222.193.hpoms-dps-lstn > 172.30.222.212.netsupport: UDP, length 107
 
 ---------------------
 Configuring Pacemaker
@@ -252,6 +279,16 @@ The other way uses a node attribute.  For example, if the MySQL resource primiti
          attributes p_mysql_mysql_master_IP="172.30.222.212"
    
 Which means the IP 172.30.222.193 will be use for the ``change master to`` command when host-01 is the master and same for 172.30.222.212, which will be used when host-02 is the master.  These IPs correspond to the private network (eth1) of those hosts.  The best way to modify the Pacemaker configuration is with the command ``crm configure edit`` which loads the configuration in vi.  Once done editing, save the file ":wq" and the new configuration will be loaded by Pacemaker.
+
+**NOTE:** Older versions of corosync (RHEL/Centos 5) may trigger an error like the following::
+
+   /var/run/crm/cib-invalid.vlD2Dq:14: element instance_attributes: Relax-NG validity error : Type ID doesn't allow value 'host-01-instance_attributes'
+   /var/run/crm/cib-invalid.vlD2Dq:14: element instance_attributes: Relax-NG validity error : Element instance_attributes failed to validate content
+   ...
+
+In this case, ``vi`` many not work for attribute editing so you can use a command like the following to set the IP (or other attributes)::
+
+   crm_attribute -l forever -G --node host-01 --name p_mysql_mysql_master_IP -v "172.30.222.193"
 
 The MySQL resource primitive
 ----------------------------
@@ -470,11 +507,69 @@ How to
 How to add a new node
 ---------------------
 
+Adding a new node to the corosync and pacemaker cluster will follow the steps listed above that describe installing the packages, configuring corosync, and starting the corosync and pacemaker services.  It should **not** be necessary to re-add the crm configuration again to the pacemaker cluster.  Once the pacemaker crm config is added, the cluster is responsible for maintaining it on all members.  
+
+Before you add the new node, however, you *should* tell pacemaker that you don't want it to come online immediately by adding the ``standby="on"`` attribute.  You can do this by adding a line to the crm config similar to the following::
+
+	node host-09 \
+		attributes ...other attributes here... standby="on"
+
+Once the new node has joined the cluster, you need to let the ``ms`` resource know that it can have another clone (slave).  You can achieve this by increasing the ``clone-max`` attribute by one.
+
+::
+
+   ms ms_MySQL p_mysql \
+        meta master-max="1" master-node-max="1" clone-max="3" clone-node-max="1" notify="true" globally-unique="false" target-role="Master" is-managed="true"
+
+Note that the easiest way to make this configuration change is with ``crm configure edit``, which allows you to edit the existing configuration in the EDITOR of your choice.  You may also want to put the pacemaker cluster into maintenance-mode first::
+
+	crm(live)configure# property maintenance-mode=on
+	crm(live)configure# commit
+
+If the new node is added successfully to the existing corosync ring and pacemaker cluster, then it should appear in the ``crm status`` and be in the ``standby`` status.  Taking the cluster out of ``maintenance-mode`` should be safe at this point, but be sure to leave your new node in ``standby``.
+
+Once the cluster is out of maintenance and the new node shows up in the configuration, you need to manually clone the new slave and set it up to replicate from whichever node is the active master.  This document will not cover the basics of cloning a slave.  Note that you will have to manually start mysql on your new node (be careful to do this exactly as pacemaker does it on the other nodes) once you have a full copy of the mysql data and before you execute your ``CHANGE MASTER ...; SLAVE START;``
+
+Verify that the new node is working, replication is consistent, and allow it to catch up using standard methods.  Once it is caught up:
+
+#. Shutdown the manually started mysql instance.  ``mysqladmin shutdown`` may be helpful here.
+#. Bring the node 'online' in pacemaker.  ``crm node online new_node_name``
+
+The trick here is that PRM will not re-issue a CHANGE MASTER if it detects that the given mysql instance was already replicating from the current master node.  Once this node is online, then it should behave as other slave nodes and failover (and possibly be promoted to the master) accordingly.
+
+
 How to repair replication
 -------------------------
 
+Repairing replication is an advanced mysql replication topic, which won't be covered in detail here.  However, it should be noted that there are two basic methods to repairing replication:
+
+#. Inline repair (i.e., tools like `pt-table-sync`)
+#. Repair by slave reclone (i.e., throw the slave's data away and re-clone it from the master or another slave )
+
+
+Inline repairs should not require any PRM intervention.  As far as PRM is concerned, it is all normal replication traffic.
+
+Reclone repairs will end up following similar steps to the ``How to add a new node`` steps above.  See above for details, but the basic steps are:
+
+#. Put the offending slave into standby
+#. Effect whatever repairs/data copying necessary
+#. Bring the slave up manually, configure replication, and wait for it to catch up
+#. Shutdown mysql on the slave
+#. Bring the slave online in Pacemaker
+
+
 How to exclude a node from the master role (or less likely to be)
 -----------------------------------------------------------------
+
+Pacemaker offers a very powerful configuration language to do exactly this, and many variations are possible.   The simplest way is to simply assign a negative priority to the ms Master role and the node you want to exclude::
+
+	location avoid_being_the_master ms_MySQL \
+ 		rule $role="Master" -1000: #uname eq my_node
+
+This should downgrade the possiblity of ``my_node`` being the master unless there simply are no other candidates.  To prevent ``my_node`` from becoming the master ever, simply take it further::
+
+	location never_be_the_master ms_MySQL \
+		rule $role="Master" -inf: #uname eq my_node
 
 How to verify why a reader VIP is not on a slaves
 -------------------------------------------------
@@ -530,3 +625,42 @@ Copy this file to all the nodes and preserve the ownership and rights.  Then, we
    crm respawn
 
 Any node with the right authkeys file will be able to join (autojoin any).  Communication will be using ethernet broadcast (bcast) but multicast or even unicast could also be used.  Finally, Pacemaker is started with the "crm respawn" line.  Compared to the corosync setup described above, in order to start Pacemaker with Heartbeat, you just need to start Heartbeat.
+
+
+Performing rolling restarts for config changes
+----------------------------------------------
+
+Because failover is automated on the PRM cluster, performing rolling configuration changes that require mysql restart (i.e., not dynamic variables) is fairly straightforward:
+
+#. Set the node to standby
+#. Make configuration changes
+#. Set the node to online
+#. Go to the next node
+
+Backups with PRM
+----------------
+
+There are a few basic ways to take a mysql backup, so depending on your method it will affect what steps you need to take in pacemaker (if any).
+
+If MySQL can continue running and the load of the backup is not a problem for continuing service on the slave, then you don't need to do anything.  Simply take your backup and allow normal service to continue.
+
+If you need to shift production traffic away from the node (i.e., a reader vip), then simply move the resource to some other node::
+
+	crm move slave_vip_running_on_backup_node not_the_backup_node
+
+Perform your backup here (note replication will remain running, but tools like mysqldump should not have a problem with this because it either locks the tables or wraps its backup in a transaction).  Then, to allow pacemaker to resume management of that vip::
+
+	crm unmove the_slave_vip_you_moved
+
+
+If you need to fully shutdown mysql to take your backup, it's best to simply standby the node::
+
+	crm node standby backup_node
+
+
+*further topics*:
+
++ Determining good backup candidate (i.e., not the master)
++ Prohibiting the selected backup node from being eligible for the master during the backup.
++ Using Xtrabackup's --safe-slave-backup with a PRM slave (see `Issue Here <https://github.com/jayjanssen/Percona-Pacemaker-Resource-Agents/issues/3>`_)
+
