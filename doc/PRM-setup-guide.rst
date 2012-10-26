@@ -507,12 +507,9 @@ How to
 How to add a new node
 ---------------------
 
-Adding a new node to the corosync and pacemaker cluster will follow the steps listed above that describe installing the packages, configuring corosync, and starting the corosync and pacemaker services.  It should **not** be necessary to re-add the crm configuration again to the pacemaker cluster.  Once the pacemaker crm config is added, the cluster is responsible for maintaining it on all members.  
+Adding a new node to the corosync and pacemaker cluster will follow the steps listed above that describe installing the packages and configuring corosync.  Then, only start corosync.  If you are on the latest corosync/pacemaker version, you have two disctinct startup script it is easy to start only corosync.  If you are on an older version where only corosync is started, temporarily move the file ``/etc/corosync/service.d/pacemaker`` to a safe place, like /root, and then start corosync.  That will cause the node to appear in the cluster when running ``crm status`` on the old nodes.  Put the new node in standby with ``crm node standby host-09`` assuming the new node hostname is ``host-09``.  Once in standby start pacemaker or for older installs, put the file ``/etc/corosync/service.d/pacemaker`` back in place and restart corosync. 
 
-Before you add the new node, however, you *should* tell pacemaker that you don't want it to come online immediately by adding the ``standby="on"`` attribute.  You can do this by adding a line to the crm config similar to the following::
 
-	node host-09 \
-		attributes ...other attributes here... standby="on"
 
 Once the new node has joined the cluster, you need to let the ``ms`` resource know that it can have another clone (slave).  You can achieve this by increasing the ``clone-max`` attribute by one.
 
@@ -571,11 +568,39 @@ This should downgrade the possiblity of ``my_node`` being the master unless ther
 	location never_be_the_master ms_MySQL \
 		rule $role="Master" -inf: #uname eq my_node
 
-How to verify why a reader VIP is not on a slaves
--------------------------------------------------
+How to verify why a reader VIP is not on a slave
+------------------------------------------------
+
+If there's enough reader VIPs for all slaves, the most likely cause is that the slave in question is not suitable for reads.  The best and quickest way to see if a slave is suitable to have a reader VIP is query the CIB like this::
+
+   root@host-02:~# cibadmin -Q | grep readable | grep nvpair
+          <nvpair id="status-host-02-readable" name="readable" value="1"/>
+          <nvpair id="status-host-01-readable" name="readable" value="1"/>
+
+This is the ``readable`` attribute used in the location rules of the reader VIPs.  If the value is 0, there is something wrong with replication, either it is broken or lagging behind.
 
 How to clean up error in pacemaker
 ----------------------------------
+
+Pacemaker is rather verbose regarding errors (failed actions) it encounters and it the responsability of a human to acknowledge the errors but once acknowledge, how do you get rid of the error.  Here's an example error output from ``crm status``::
+
+   Online: [ pacemaker-1 pacemaker-2 ]
+
+   Master/Slave Set: ms_MySQL [p_mysql]
+      Masters: [ pacemaker-2 ]
+      Slaves: [ pacemaker-1 ]
+   reader_vip_1   (ocf::heartbeat:IPaddr2):       Started pacemaker-1
+   reader_vip_2   (ocf::heartbeat:IPaddr2):       Started pacemaker-2
+   writer_vip     (ocf::heartbeat:IPaddr2):       Started pacemaker-2
+
+   Failed actions:
+      p_mysql:0_monitor_2000 (node=pacemaker-1, call=10, rc=1, status=complete): unknown error
+
+Such failed actions are remove by this command::
+
+   crm resource cleanup p_mysql:0
+
+where ``p_mysql`` is the primitive name and ``:0`` the clone set instance that has the error.
 
 Enabling trace in the resource agent
 ------------------------------------
