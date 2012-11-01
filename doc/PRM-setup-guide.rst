@@ -350,6 +350,9 @@ reader_attribute         This parameter sets the name of the transient attribute
                          monitor call and sets it to 1 is sane and 0 if not sane.  Sane is defined as lagging by less than
                          max_slave_lag and slave threads are running.  *default: readable*
 
+reader_failcount         The number of times a monitor operation can find the slave to be unsuitable for reader VIP 
+                         before failing.  Useful if there are short intermittent issues like clock adjustments in VMs.
+
 =======================  ========================================================================================================                      
 
 So here's a typical primitive declaration::
