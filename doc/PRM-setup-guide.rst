@@ -24,16 +24,17 @@ Pacemaker can also use the heartbeat communication stack.  The setup using heart
 Pacemaker
 =========
 
-Pacemaker is the heart of the solution, it the part managing where the logic is.  Pacemaker maitains a *cluster information base* **cib** that is a share xml databases between all the actives nodes.  The updates to the cib are send synchronously too all the nodes through Corosync.  Pacemaker has an amazingly rich set of configuration settings and features that allows very complex designs.  Without going into too much details, here are some of the features offered:
-- location rules: locating resources on nodes based on some criteria
-- colocating rules: colocating resources based on some criteria
-- clone set: a bunch of similar resource
-- master-slave clone set: a clone set with different level of members
-- a resource group: a group of resources forced to be together
-- ordering rules: in which order should some operation be performed
-- Attributes: kind of cluster wide variables, can be permanent or transient
-- Monitoring: resource can be monitored
-- Notification: resource can be notified of a cluster wide change
+Pacemaker is the heart of the solution, it the part managing where the logic is.  Pacemaker maintains a *cluster information base* **cib** that is a share xml databases between all the actives nodes.  The updates to the cib are send synchronously too all the nodes through Corosync.  Pacemaker has an amazingly rich set of configuration settings and features that allows very complex designs.  Without going into too much details, here are some of the features offered:
+
+   - location rules: locating resources on nodes based on some criteria
+   - colocating rules: colocating resources based on some criteria
+   - clone set: a bunch of similar resource
+   - master-slave clone set: a clone set with different level of members
+   - a resource group: a group of resources forced to be together
+   - ordering rules: in which order should some operation be performed
+   - Attributes: kind of cluster wide variables, can be permanent or transient
+   - Monitoring: resource can be monitored
+   - Notification: resource can be notified of a cluster wide change
 
 and many more.  The Pacemaker logic works with scores, the highest score wins.  
 
@@ -750,11 +751,6 @@ An HA setup without stonith devices is relying on the willingness of the nodes t
          rule $id="stonith-host-02_loc-rule" -inf: #uname eq host-02
 
 In the above example, IPs in the 10.1.2.x are the IPs of the ILO devices.  For each ILO device, you specify in the pcmk_host_list which host it fences. We also need location rules to prevent a stonith device to run on the node it is supposed to kill.
-
-
-Preventing a collapse of the slaves
------------------------------------
-
 
 
 Using heartbeat
