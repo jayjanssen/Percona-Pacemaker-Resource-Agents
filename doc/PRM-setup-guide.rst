@@ -642,7 +642,7 @@ With many cloud provider, it is not possible to have virtual IPs so in that case
    [root@app-01 corosync]# cd /usr/lib/ocf/resource.d/
    [root@app-01 resource.d]# mkdir percona
    [root@app-01 resource.d]# cd percona/
-   [root@app-01 percona]# wget -q -O mysql https://github.com/jayjanssen/Percona-Pacemaker-Resource-Agents/raw/master/mysql_novip
+   [root@app-01 percona]# wget -q -O mysql https://github.com/jayjanssen/Percona-Pacemaker-Resource-Agents/raw/master/fake_mysql_novip
    [root@app-01 percona]# chmod u+x mysql
 
 By default the IP and port used are::
@@ -754,6 +754,8 @@ In the above example, IPs in the 10.1.2.x are the IPs of the ILO devices.  For e
 
 Preventing a collapse of the slaves
 -----------------------------------
+
+
 
 Using heartbeat
 ---------------
