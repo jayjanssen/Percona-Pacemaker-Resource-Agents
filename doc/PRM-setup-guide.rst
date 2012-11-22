@@ -613,7 +613,22 @@ The golden way of debugging a PRM setup is with the agent trace file which is th
    mkdir -p /tmp/mysql.ocf.ra.debug
    touch /tmp/mysql.ocf.ra.debug/log
 
-Be aware, this is a very chatty file, about 20MB/h.  If left unattented, it can fill a disk.  When you are done, simply remove the log file.
+Be aware, this is a very chatty file, about 20MB/h.  If left unattented, it can fill a disk.  When you are done, simply remove the log file.  
+If you plan to keep it there, add a logrotate config file like:: 
+
+   [root@host-01 mysql.ocf.ra.debug]# more /etc/logrotate.d/mysql-ra-trace
+   /tmp/mysql.ocf.ra.debug/log {
+         # create 600 mysql mysql
+         notifempty
+         daily
+         rotate 4
+         missingok
+         compress
+      postrotate
+         # just if mysqld is really running
+         touch log
+      endscript
+   }
 
 
 Advanced topics
@@ -622,11 +637,120 @@ Advanced topics
 VIPless cluster (cloud)
 -----------------------
 
+With many cloud provider, it is not possible to have virtual IPs so in that case, how can we reach the MySQL server.  For simplicity we'll consider only the master access, accessing the slaves for reads in such environment is possible but more challenging.  The principle of operation here will be to also run pacemaker on the application servers but instead of running MySQL, they'll be running a fake MySQL resource agent that will reconfigure access to the master based on the post-promote notification it will receive from the pacemaker cluster.  Configure the application with pacemaker like described above for a MySQL server but keep the node in standby for now.  Then, replace the mysql agent using the following procedure::
+
+   [root@app-01 corosync]# cd /usr/lib/ocf/resource.d/
+   [root@app-01 resource.d]# mkdir percona
+   [root@app-01 resource.d]# cd percona/
+   [root@app-01 percona]# wget -q -O mysql https://github.com/jayjanssen/Percona-Pacemaker-Resource-Agents/raw/master/mysql_novip
+   [root@app-01 percona]# chmod u+x mysql
+
+By default the IP and port used are::
+
+   Fake_Master_IP=74.125.141.105  #a google IP
+   Fake_Master_port=3306
+
+You must make sure your application use these values to connect to the master even though it is likely not the actual IP of the master server.  Next, we must change the configuration of Pacemaker in order to grow the master-slave clone set and prevent the master role from running on the application server node.  If initially we had 3 database nodes we would be replacing::
+
+   ms ms_MySQL p_mysql \
+        meta master-max="1" master-node-max="1" clone-max="3" \
+        clone-node-max="1" notify="true" globally-unique="false" \
+        target-role="Master" is-managed="true"
+
+with::
+
+   ms ms_MySQL p_mysql \
+        meta master-max="1" master-node-max="1" clone-max="3" \
+        clone-node-max="1" notify="true" globally-unique="false" \
+        target-role="Master" is-managed="true"
+   location app_01_not_master ms_MySQL \
+        rule $id="app_01_not_maste-rule" $role="master" -inf: #uname eq app-01
+
+If you have many application servers, you can add them in a similar way.
+
+
 Non-multicast cluster (cloud)
 -----------------------------
 
+Cloud environment are also well known for their lack of support for Ethernet multicast (and broadcast).  There are 2 solutions to this problem, one using Heartbeat unicast and the other using Corosync udpu.  For Heartbeat, the ha.cf file will look like::
+
+   autojoin any
+   ucast eth0 10.1.1.1
+   ucast eth0 10.1.1.2
+   ucast eth0 10.1.1.3
+   warntime 5
+   deadtime 15
+   initdead 60
+   keepalive 2
+   crm respawn
+
+and for corosync, the corosync.conf file with the udpu configuration looks like::
+
+   compatibility: whitetank
+
+   totem {
+         version: 2
+         secauth: on
+         threads: 0
+         interface {
+                  member {
+                           memberaddr: 10.1.1.1
+                  }
+                  member {
+                           memberaddr: 10.1.1.2
+                  }
+                  member {
+                           memberaddr: 10.1.1.3
+                  }
+                  ringnumber: 0
+                  bindnetaddr: 10.1.1.0
+                  netmask: 255.255.255.0
+                  mcastport: 5405
+                  ttl: 1
+         }
+            transport: udpu
+   }
+
+   logging {
+         fileline: off
+         to_stderr: no
+         to_logfile: yes
+         to_syslog: yes
+         logfile: /var/log/cluster/corosync.log
+         debug: off
+         timestamp: on
+         logger_subsys {
+                  subsys: AMF
+                  debug: off
+         }
+   }
+
+   amf {
+         mode: disabled
+   }
+
+Be aware that in order to use ``udpu`` with corosync, you need version 1.3+.
+
 Stonith devices
 ---------------
+
+An HA setup without stonith devices is relying on the willingness of the nodes to perform the required tasks.  When everything is running fine, there's no problem to make such an assumption but if you are considering HA, it is because you want to cover cases where things are going wrong.  For example, take one of the simplest HA resource, a VIP.  In order to create and remove the VIP, Pacemaker needs to access the ``/sbin/ip`` binary.  What happends if the filesystem is not available?  The kernel has the VIP defined but Pacemaker is unable to remove it.  Another node in the cluster will start the VIP and boom... you have twice the same IP on your network.  So, you need a way to resolve cases when a node cannot perform a required task like releasing a resource.  Fencing is answer and stonith (Shoot The Other Node In The Head) devices are the implementation.  There are many stonith devices available but the most commons are IPMI and ILO.  To get access to the most recent stonith devices, install the package ``fence-agents`` from RedHat cluster, these are usable with Pacemaker.  In pacemaker, stonith devices are defined a bit like normal primitives.  Here's an example using ILO::
+
+   primitive stonith-host-01 stonith:fence_ilo \
+         params pcmk_host_list="host-01" pcmk_host_check="static-list" \
+         ipaddr="10.1.2.1" login="iloadmin" passwd="ilopass" verbose="true" \
+         op monitor interval="60s"
+   primitive stonith-host-02 stonith:fence_ilo \
+         params pcmk_host_list="host-02" pcmk_host_check="static-list" \
+         ipaddr="10.1.2.2" login="iloadmin" passwd="ilopass" verbose="true" \
+         op monitor interval="60s"
+   location stonith-host-01_loc stonith-host-01 \
+         rule $id="stonith-host-01_loc-rule" -inf: #uname eq host-01
+   location stonith-host-02_loc stonith-host-02 \
+         rule $id="stonith-host-02_loc-rule" -inf: #uname eq host-02
+
+In the above example, IPs in the 10.1.2.x are the IPs of the ILO devices.  For each ILO device, you specify in the pcmk_host_list which host it fences. We also need location rules to prevent a stonith device to run on the node it is supposed to kill.
+
 
 Preventing a collapse of the slaves
 -----------------------------------
