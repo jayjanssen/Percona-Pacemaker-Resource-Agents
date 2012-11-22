@@ -660,7 +660,7 @@ You must make sure your application use these values to connect to the master ev
 with::
 
    ms ms_MySQL p_mysql \
-        meta master-max="1" master-node-max="1" clone-max="3" \
+        meta master-max="1" master-node-max="1" clone-max="4" \
         clone-node-max="1" notify="true" globally-unique="false" \
         target-role="Master" is-managed="true"
    location app_01_not_master ms_MySQL \
