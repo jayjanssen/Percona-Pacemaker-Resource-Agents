@@ -573,12 +573,12 @@ The basic tests don't require the presence of a stonith device and the minimalis
 Adjust the credentials so that the writes can follow the writer VIP as it moves between servers.  Make sure you don't grant ``SUPER`` since it breaks the read-only barrier.
 
 Manual failover
-```````````````
+
 
 If the master is host-01, but it in standby with ``crm node standby host-01`` and check that the inserts resume on the host-02.  The script may have thrown a few errors but that's normal.  Then, put host-01 back online with ``crm node online host-01``, it should be back as a slave and should pickup the missing from replication.  Verify that replication is ok and there are no holes in the ids.
 
 Slave lagging
-`````````````
+
 
 The following test is design to verify the behavior of the reader_vips when replication is lagging.  With the above write script still running, run the following query on the master::
 
@@ -587,19 +587,19 @@ The following test is design to verify the behavior of the reader_vips when repl
 For that to run, max_slave_lag must be larger than the monitor operation interval times the failcount for the slave in the ``p_mysql`` primitive definition.  After you started the query on the master, start the shell tool ``crm_mon``.  After about 3 times the max_slave_lag, the reader_vip should move away from the slave and then after about 4 times max_slave_lag, go back.
 
 Replication broken
-``````````````````
+
 
 If you break replication by inserting a row on the save in the writeload table, the reader_vip should move away from the affected slave in around the monitor operation interval times the failcount.  Once corrected, the reader_vip should come back.
 
 
 Kill of MySQL
-`````````````
+
 
 A kill of the ``mysqld`` process, on either the master or the slave should cause Pacemaker to restart it.  If the restart are normal, there's no need for the master role to switch over.
 
 
 Kill of MySQL no restart
-````````````````````````
+
 
 As we are progressing in our tests, let's be a bit rougher with MySQL, we'll kill the master mysqld process but we will start nc to bind the 3306 port, preventing it to restart.  It is advisable to reduce the ``op start`` and ``op stop`` values for that test, 900s is a long while to wait.  I personally ran the test with both at 20s.  So, on the master, run::
 
@@ -643,12 +643,12 @@ If another node is promoted master than test is successful.  To put thing back i
 and host-02 should become a slave of host-01.
 
 Reboot 1 node
-`````````````
+
 
 Rebooting any of the nodes should always leave the database system with a master.  Be careful if you reboot nodes in sequences while writing to them, give at least a few seconds for the slave process to catch up.
 
 Reboot all node
-```````````````
+
 
 After the reboot, a master should be promoted and the other nodes should be slaves of the master.  
 
