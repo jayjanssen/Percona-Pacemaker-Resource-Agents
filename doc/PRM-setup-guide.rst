@@ -463,11 +463,12 @@ Here's all the snippets grouped together::
 You'll notice toward the end, the ``p_mysql_REPL_INFO`` attribute (the value may differ) that correspond to the master status when it has been promoted to master.  
  
 
+-------------------------
 Useful Pacemaker commands
-=========================
+-------------------------
 
 To check the cluster status
----------------------------
+===========================
 
 Two tools can be used to query the cluster status, ``crm_mon`` and ``crm status``.  They produce the same output but ``crm_mon`` is more like top, it stays on screen and refreshes at every changes.  ``crm status`` is a one time status dump.  The output is the following::
 
@@ -492,12 +493,12 @@ Two tools can be used to query the cluster status, ``crm_mon`` and ``crm status`
    writer_vip     (ocf::heartbeat:IPaddr2):       Started host-01
 
 To view and/or edit the configuration
--------------------------------------
+=====================================
 
 To view the current configuration use ``crm configure show`` and to edit, use ``crm configure edit``.  The later command starts the vi editor on the current configuration.  If you want to use another editor, set the EDITOR session variable. 
 
 To change a node status
------------------------
+=======================
 
 It is often required to put a node in standby mode in order to perform maintenance operations on it.  The best way is to use the ``standby`` node status.  Let's consider this initial state::
 
@@ -546,6 +547,7 @@ Now, if we want to put host-02 in standby we do ``crm node standby host-02``, wh
 
 The node host-02 can be put back online with ``crm node online host-02``.  If above we would have chose to put host-01 in standby, the master role would have been switch to host-02 and the result would have been pretty similar, inverting host-01 and host-02 and the above status. 
 
+
 ----------------
 Testing failover
 ----------------
@@ -553,7 +555,7 @@ Testing failover
 An HA setup is only HA in theory until tested so that's why the testing part is so important.
 
 Basic tests
------------
+===========
 
 The basic tests don't require the presence of a stonith device and the minimalistic set of tests that should be performed.  All these tests should be run while sending writes to the master.  As a bare minimum, use simple bash script like::
 
@@ -573,12 +575,12 @@ The basic tests don't require the presence of a stonith device and the minimalis
 Adjust the credentials so that the writes can follow the writer VIP as it moves between servers.  Make sure you don't grant ``SUPER`` since it breaks the read-only barrier.
 
 Manual failover
-
+---------------
 
 If the master is host-01, but it in standby with ``crm node standby host-01`` and check that the inserts resume on the host-02.  The script may have thrown a few errors but that's normal.  Then, put host-01 back online with ``crm node online host-01``, it should be back as a slave and should pickup the missing from replication.  Verify that replication is ok and there are no holes in the ids.
 
 Slave lagging
-
+-------------
 
 The following test is design to verify the behavior of the reader_vips when replication is lagging.  With the above write script still running, run the following query on the master::
 
@@ -587,19 +589,19 @@ The following test is design to verify the behavior of the reader_vips when repl
 For that to run, max_slave_lag must be larger than the monitor operation interval times the failcount for the slave in the ``p_mysql`` primitive definition.  After you started the query on the master, start the shell tool ``crm_mon``.  After about 3 times the max_slave_lag, the reader_vip should move away from the slave and then after about 4 times max_slave_lag, go back.
 
 Replication broken
-
+------------------
 
 If you break replication by inserting a row on the save in the writeload table, the reader_vip should move away from the affected slave in around the monitor operation interval times the failcount.  Once corrected, the reader_vip should come back.
 
 
 Kill of MySQL
-
+-------------
 
 A kill of the ``mysqld`` process, on either the master or the slave should cause Pacemaker to restart it.  If the restart are normal, there's no need for the master role to switch over.
 
 
 Kill of MySQL no restart
-
+------------------------
 
 As we are progressing in our tests, let's be a bit rougher with MySQL, we'll kill the master mysqld process but we will start nc to bind the 3306 port, preventing it to restart.  It is advisable to reduce the ``op start`` and ``op stop`` values for that test, 900s is a long while to wait.  I personally ran the test with both at 20s.  So, on the master, run::
 
@@ -643,17 +645,17 @@ If another node is promoted master than test is successful.  To put thing back i
 and host-02 should become a slave of host-01.
 
 Reboot 1 node
-
+-------------
 
 Rebooting any of the nodes should always leave the database system with a master.  Be careful if you reboot nodes in sequences while writing to them, give at least a few seconds for the slave process to catch up.
 
 Reboot all node
-
+---------------
 
 After the reboot, a master should be promoted and the other nodes should be slaves of the master.  
 
 Stonith tests
--------------
+=============
 
 For the following test, you need stonith devices defined.  
 
@@ -667,7 +669,7 @@ How to
 ------
 
 How to add a new node
----------------------
+=====================
 
 Adding a new node to the corosync and pacemaker cluster will follow the steps listed above that describe installing the packages and configuring corosync.  Then, only start corosync.  If you are on the latest corosync/pacemaker version, you have two disctinct startup script it is easy to start only corosync.  If you are on an older version where only corosync is started, temporarily move the file ``/etc/corosync/service.d/pacemaker`` to a safe place, like /root, and then start corosync.  That will cause the node to appear in the cluster when running ``crm status`` on the old nodes.  Put the new node in standby with ``crm node standby host-09`` assuming the new node hostname is ``host-09``.  Once in standby start pacemaker or for older installs, put the file ``/etc/corosync/service.d/pacemaker`` back in place and restart corosync. 
 
@@ -698,7 +700,7 @@ The trick here is that PRM will not re-issue a CHANGE MASTER if it detects that 
 
 
 How to repair replication
--------------------------
+=========================
 
 Repairing replication is an advanced mysql replication topic, which won't be covered in detail here.  However, it should be noted that there are two basic methods to repairing replication:
 
@@ -718,7 +720,7 @@ Reclone repairs will end up following similar steps to the ``How to add a new no
 
 
 How to exclude a node from the master role (or less likely to be)
------------------------------------------------------------------
+=================================================================
 
 Pacemaker offers a very powerful configuration language to do exactly this, and many variations are possible.   The simplest way is to simply assign a negative priority to the ms Master role and the node you want to exclude::
 
@@ -731,7 +733,7 @@ This should downgrade the possiblity of ``my_node`` being the master unless ther
 		rule $role="Master" -inf: #uname eq my_node
 
 How to verify why a reader VIP is not on a slave
-------------------------------------------------
+================================================
 
 If there's enough reader VIPs for all slaves, the most likely cause is that the slave in question is not suitable for reads.  The best and quickest way to see if a slave is suitable to have a reader VIP is query the CIB like this::
 
@@ -742,7 +744,7 @@ If there's enough reader VIPs for all slaves, the most likely cause is that the 
 This is the ``readable`` attribute used in the location rules of the reader VIPs.  If the value is 0, there is something wrong with replication, either it is broken or lagging behind.
 
 How to clean up error in pacemaker
-----------------------------------
+==================================
 
 Pacemaker is rather verbose regarding errors (failed actions) it encounters and it the responsability of a human to acknowledge the errors but once acknowledge, how do you get rid of the error.  Here's an example error output from ``crm status``::
 
@@ -767,11 +769,11 @@ where ``p_mysql`` is the primitive name and ``:0`` the clone set instance that h
 
 
 Configuring a report slave with a dedicated VIP
------------------------------------------------
+===============================================
 
 
 Enabling trace in the resource agent
-------------------------------------
+====================================
 
 The golden way of debugging a PRM setup is with the agent trace file which is the output of "bash -x".  To enable the trace file simply do::
 
@@ -796,11 +798,12 @@ If you plan to keep it there, add a logrotate config file like::
    }
 
 
+---------------
 Advanced topics
-===============
+---------------
 
 VIPless cluster (cloud)
------------------------
+=======================
 
 With many cloud provider, it is not possible to have virtual IPs so in that case, how can we reach the MySQL server.  For simplicity we'll consider only the master access, accessing the slaves for reads in such environment is possible but more challenging.  The principle of operation here will be to also run pacemaker on the application servers but instead of running MySQL, they'll be running a fake MySQL resource agent that will reconfigure access to the master based on the post-promote notification it will receive from the pacemaker cluster.  Configure the application with pacemaker like described above for a MySQL server but keep the node in standby for now.  Then, replace the mysql agent using the following procedure::
 
@@ -835,7 +838,7 @@ If you have many application servers, you can add them in a similar way.
 
 
 Non-multicast cluster (cloud)
------------------------------
+=============================
 
 Cloud environment are also well known for their lack of support for Ethernet multicast (and broadcast).  There are 2 solutions to this problem, one using Heartbeat unicast and the other using Corosync udpu.  For Heartbeat, the ha.cf file will look like::
 
@@ -897,7 +900,7 @@ and for corosync, the corosync.conf file with the udpu configuration looks like:
 Be aware that in order to use ``udpu`` with corosync, you need version 1.3+.
 
 Stonith devices
----------------
+===============
 
 An HA setup without stonith devices is relying on the willingness of the nodes to perform the required tasks.  When everything is running fine, there's no problem to make such an assumption but if you are considering HA, it is because you want to cover cases where things are going wrong.  For example, take one of the simplest HA resource, a VIP.  In order to create and remove the VIP, Pacemaker needs to access the ``/sbin/ip`` binary.  What happends if the filesystem is not available?  The kernel has the VIP defined but Pacemaker is unable to remove it.  Another node in the cluster will start the VIP and boom... you have twice the same IP on your network.  So, you need a way to resolve cases when a node cannot perform a required task like releasing a resource.  Fencing is answer and stonith (Shoot The Other Node In The Head) devices are the implementation.  There are many stonith devices available but the most commons are IPMI and ILO.  To get access to the most recent stonith devices, install the package ``fence-agents`` from RedHat cluster, these are usable with Pacemaker.  In pacemaker, stonith devices are defined a bit like normal primitives.  Here's an example using ILO::
 
@@ -918,7 +921,7 @@ In the above example, IPs in the 10.1.2.x are the IPs of the ILO devices.  For e
 
 
 Using heartbeat
----------------
+===============
 
 Although Corosync is now the default communication stack with Pacemaker, Pacemaker works also well with Hearbeat. Here are the steps you need to configure Heartbeat instead of Corosync.  The first thing, you need a cluster key which can be created as simply as::
 
@@ -942,7 +945,7 @@ Any node with the right authkeys file will be able to join (autojoin any).  Comm
 
 
 Performing rolling restarts for config changes
-----------------------------------------------
+==============================================
 
 Because failover is automated on the PRM cluster, performing rolling configuration changes that require mysql restart (i.e., not dynamic variables) is fairly straightforward:
 
@@ -952,7 +955,7 @@ Because failover is automated on the PRM cluster, performing rolling configurati
 #. Go to the next node
 
 Backups with PRM
-----------------
+================
 
 There are a few basic ways to take a mysql backup, so depending on your method it will affect what steps you need to take in pacemaker (if any).
 
