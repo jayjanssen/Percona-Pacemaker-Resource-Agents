@@ -499,14 +499,172 @@ To view the current configuration use ``crm configure show`` and to edit, use ``
 To change a node status
 -----------------------
 
+It is often required to put a node in standby mode in order to perform maintenance operations on it.  The best way is to use the ``standby`` node status.  Let's consider this initial state::
 
+   root@host-02:~# crm status
+   ============
+   Last updated: Fri Nov 23 09:17:31 2012
+   Last change: Fri Nov 23 09:16:40 2012 via crm_attribute on host-01
+   Stack: openais
+   Current DC: host-01 - partition with quorum
+   Version: 1.1.7-ee0730e13d124c3d58f00016c3376a1de5323cff
+   2 Nodes configured, 2 expected votes
+   5 Resources configured.
+   ============
+
+   Online: [ host-01 host-02 ]
+
+   Master/Slave Set: ms_MySQL [p_mysql]
+      Masters: [ host-01 ]
+      Slaves: [ host-02 ]
+   reader_vip_1   (ocf::heartbeat:IPaddr2):       Started host-02
+   reader_vip_2   (ocf::heartbeat:IPaddr2):       Started host-01
+   writer_vip     (ocf::heartbeat:IPaddr2):       Started host-01
+
+Now, if we want to put host-02 in standby we do ``crm node standby host-02``, which, after a few seconds will produce the status::
+
+   root@host-02:~# crm status
+   ============
+   Last updated: Fri Nov 23 09:25:21 2012
+   Last change: Fri Nov 23 09:25:11 2012 via crm_attribute on host-02
+   Stack: openais
+   Current DC: host-01 - partition with quorum
+   Version: 1.1.7-ee0730e13d124c3d58f00016c3376a1de5323cff
+   2 Nodes configured, 2 expected votes
+   5 Resources configured.
+   ============
+
+   Node host-02: standby
+   Online: [ host-01 ]
+
+   Master/Slave Set: ms_MySQL [p_mysql]
+      Masters: [ host-01 ]
+      Stopped: [ p_mysql:1 ]
+   reader_vip_1   (ocf::heartbeat:IPaddr2):       Started host-01
+   reader_vip_2   (ocf::heartbeat:IPaddr2):       Started host-01
+   writer_vip     (ocf::heartbeat:IPaddr2):       Started host-01
+
+The node host-02 can be put back online with ``crm node online host-02``.  If above we would have chose to put host-01 in standby, the master role would have been switch to host-02 and the result would have been pretty similar, inverting host-01 and host-02 and the above status. 
 
 ----------------
 Testing failover
 ----------------
 
+An HA setup is only HA in theory until tested so that's why the testing part is so important.
+
+Basic tests
+-----------
+
+The basic tests don't require the presence of a stonith device and the minimalistic set of tests that should be performed.  All these tests should be run while sending writes to the master.  As a bare minimum, use simple bash script like::
+
+   #!/bin/bash
+   # 
+   MYSQLCRED='-u writeuser -pwrites -h 172.30.212.100'
+
+   mysql $MYSQLCRED -e "create database if not exists test;"
+   mysql $MYSQLCRED -e "create table if not exists writeload (id int not null auto_increment,data char(10), primary key (id)) engine = innodb;" test
+   
+   while [ 1 ]
+   do
+      mysql $MYSQLCRED -e "insert into writeload values (data) values ('test');" test
+      sleep 1
+   done
+
+Adjust the credentials so that the writes can follow the writer VIP as it moves between servers.  Make sure you don't grant ``SUPER`` since it breaks the read-only barrier.
+
+Manual failover
+```````````````
+
+If the master is host-01, but it in standby with ``crm node standby host-01`` and check that the inserts resume on the host-02.  The script may have thrown a few errors but that's normal.  Then, put host-01 back online with ``crm node online host-01``, it should be back as a slave and should pickup the missing from replication.  Verify that replication is ok and there are no holes in the ids.
+
+Slave lagging
+`````````````
+
+The following test is design to verify the behavior of the reader_vips when replication is lagging.  With the above write script still running, run the following query on the master::
+
+   insert into test.writeload select sleep(2*max_slave_lag);
+
+For that to run, max_slave_lag must be larger than the monitor operation interval times the failcount for the slave in the ``p_mysql`` primitive definition.  After you started the query on the master, start the shell tool ``crm_mon``.  After about 3 times the max_slave_lag, the reader_vip should move away from the slave and then after about 4 times max_slave_lag, go back.
+
+Replication broken
+``````````````````
+
+If you break replication by inserting a row on the save in the writeload table, the reader_vip should move away from the affected slave in around the monitor operation interval times the failcount.  Once corrected, the reader_vip should come back.
+
+
+Kill of MySQL
+`````````````
+
+A kill of the ``mysqld`` process, on either the master or the slave should cause Pacemaker to restart it.  If the restart are normal, there's no need for the master role to switch over.
+
+
+Kill of MySQL no restart
+````````````````````````
+
+As we are progressing in our tests, let's be a bit rougher with MySQL, we'll kill the master mysqld process but we will start nc to bind the 3306 port, preventing it to restart.  It is advisable to reduce the ``op start`` and ``op stop`` values for that test, 900s is a long while to wait.  I personally ran the test with both at 20s.  So, on the master, run::
+
+   kill `pidof mysqld`; nc -l -p 3306 > /dev/null &
+
+In my case, the master was host-02.  After a short while the status should be like::
+
+   root@host-02:~# crm status
+   ============
+   Last updated: Fri Nov 23 13:55:55 2012
+   Last change: Fri Nov 23 13:53:06 2012 via crm_attribute on host-01
+   Stack: openais
+   Current DC: host-01 - partition with quorum
+   Version: 1.1.7-ee0730e13d124c3d58f00016c3376a1de5323cff
+   2 Nodes configured, 2 expected votes
+   5 Resources configured.
+   ============
+
+   Online: [ host-01 host-02 ]
+
+   Master/Slave Set: ms_MySQL [p_mysql]
+      Masters: [ host-01 ]
+      Stopped: [ p_mysql:1 ]
+   reader_vip_1   (ocf::heartbeat:IPaddr2):       Started host-01
+   reader_vip_2   (ocf::heartbeat:IPaddr2):       Started host-01
+   writer_vip     (ocf::heartbeat:IPaddr2):       Started host-01
+
+   Failed actions:
+      p_mysql:1_start_0 (node=host-02, call=87, rc=-2, status=Timed Out): unknown exec error
+
+If another node is promoted master than test is successful.  To put thing back in place do the following step on the failed node::
+
+   root@host-02:~# kill `pidof nc`; crm resource cleanup p_mysql:1
+
+   Cleaning up p_mysql:1 on host-01
+   Cleaning up p_mysql:1 on host-02
+   Waiting for 3 replies from the CRMd... OK
+   [1]+  Exit 1                  nc -l -p 3306 > /dev/null
+   root@host-02:~#
+
+and host-02 should become a slave of host-01.
+
+Reboot 1 node
+`````````````
+
+Rebooting any of the nodes should always leave the database system with a master.  Be careful if you reboot nodes in sequences while writing to them, give at least a few seconds for the slave process to catch up.
+
+Reboot all node
+```````````````
+
+After the reboot, a master should be promoted and the other nodes should be slaves of the master.  
+
+Stonith tests
+-------------
+
+For the following test, you need stonith devices defined.  
+
+
+
+
+
+
+------
 How to
-======
+------
 
 How to add a new node
 ---------------------
@@ -605,6 +763,12 @@ Such failed actions are remove by this command::
    crm resource cleanup p_mysql:0
 
 where ``p_mysql`` is the primitive name and ``:0`` the clone set instance that has the error.
+
+
+
+Configuring a report slave with a dedicated VIP
+-----------------------------------------------
+
 
 Enabling trace in the resource agent
 ------------------------------------
