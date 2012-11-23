@@ -654,13 +654,6 @@ Reboot all node
 
 After the reboot, a master should be promoted and the other nodes should be slaves of the master.  
 
-Stonith tests
-=============
-
-For the following test, you need stonith devices defined.  
-
-
-
 
 
 
