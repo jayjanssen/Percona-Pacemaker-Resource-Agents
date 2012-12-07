@@ -974,7 +974,13 @@ Perform your backup here (note replication will remain running, but tools like m
 If you need to fully shutdown mysql to take your backup, it's best to simply standby the node::
 
 	crm node standby backup_node
-	
+
+
+---------------
+Troubleshooting
+---------------
+
+
 Diagnosing Resource Placement Issues
 ====================================
 
