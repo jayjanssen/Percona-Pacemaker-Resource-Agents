@@ -141,7 +141,13 @@ The next step is to configure the communiction layer, corosync by creating the c
    }
 
 
-copy the file to both servers and start corosync with ``service corosync start``.  In order to verify corosync is working correctly, run the following command::
+copy the file to both servers.
+
+
+Starting Corosync
+==================
+
+Start corosync with ``service corosync start``.  In order to verify corosync is working correctly, run the following command::
 
    [root@host-01 corosync]# corosync-objctl | grep members | grep ip
    runtime.totem.pg.mrp.srp.members.-723640660.ip=r(0) ip(172.30.222.212) 
@@ -172,8 +178,10 @@ The OS level configuration for Pacemaker is very simple, create the file ``/etc/
          ver: 1
    }
 
+Starting Pacemaker
+==================
 
-then, you can start pacemaker with ``service pacemaker start``.  Once started, you should be able to verify the cluster status with the crm command::
+You can then start pacemaker with ``service pacemaker start``.  Once started, you should be able to verify the cluster status with the crm command::
 
    [root@host-02 corosync]# crm status
    ============
