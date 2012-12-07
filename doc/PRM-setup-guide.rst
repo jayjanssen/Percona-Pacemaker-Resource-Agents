@@ -966,6 +966,13 @@ Perform your backup here (note replication will remain running, but tools like m
 If you need to fully shutdown mysql to take your backup, it's best to simply standby the node::
 
 	crm node standby backup_node
+	
+Diagnosing Resource Placement Issues
+====================================
+
+Sometimes if a resource isn't going where you expected, you need to try to track down why.  Ultimately pacemaker configuration only does what you tell it (except when it doesn't), so it's important to try to look at the inputs it uses in the scoring system.
+
+If you run ``crm_simulate -s -L`` you can see a list of scores for each resource on each node.  The highest score should get the resource.
 
 
 *further topics*:
