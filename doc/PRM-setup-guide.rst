@@ -976,6 +976,14 @@ If you need to fully shutdown mysql to take your backup, it's best to simply sta
 	crm node standby backup_node
 
 
+Telling the Reader VIPs to avoid the Writer VIP
+==================================================
+
+If we want the master to take the reader vips if no other slaves are available then it should move the reader vip away from the master.  We can do this with this rule (need one for each reader vip)::
+
+	colocation col_vip_dislike_each_other -200: reader_vip_1 writer_vip
+
+
 ---------------
 Troubleshooting
 ---------------
