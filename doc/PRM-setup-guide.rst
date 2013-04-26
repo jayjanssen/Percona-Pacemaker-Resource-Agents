@@ -361,6 +361,7 @@ reader_attribute         This parameter sets the name of the transient attribute
 
 reader_failcount         The number of times a monitor operation can find the slave to be unsuitable for reader VIP 
                          before failing.  Useful if there are short intermittent issues like clock adjustments in VMs.
+                         *default: 1*
 
 =======================  ========================================================================================================                      
 
