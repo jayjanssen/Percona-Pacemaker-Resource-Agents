@@ -148,7 +148,7 @@ int main(int argc, char** argv) {
     struct ybp_query_event_safe* s;
     MD5_CTX c; 
     int n;
-    char out[MD5_DIGEST_LENGTH];
+    unsigned char out[MD5_DIGEST_LENGTH];
     char* cptr;
     uint32_t	next_position=4;
     MD5_Init(&c);
